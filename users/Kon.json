@@ -1,0 +1,12 @@
+{
+	"Name": "Kon",
+	"Age": 23,
+	"Contact": "9101910191",
+	"Company": "dul Tech",
+	"Address": {
+		"City": "bangalore",
+		"State": "karnataka",
+		"Country": "india",
+		"Pincode": 509101
+	}
+}

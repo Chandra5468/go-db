@@ -1,0 +1,12 @@
+{
+	"Name": "Bon",
+	"Age": 23,
+	"Contact": "9101910191",
+	"Company": "Gugul Tech",
+	"Address": {
+		"City": "bangalore",
+		"State": "karnataka",
+		"Country": "india",
+		"Pincode": 509101
+	}
+}
