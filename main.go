@@ -66,91 +66,97 @@ func stat(path string) (fi os.FileInfo, err error) {
 
 func (d *Driver) Write(collection, resource string, v interface{}) error {
 	if collection == "" {
-		return fmt.Errorf("Missing collection - no plce to save record")
+		return fmt.Errorf("missing collection - no place to save record")
 	}
-
 	if resource == "" {
-		return fmt.Errorf("missing resoruce unable to save record (no name)")
+		return fmt.Errorf("missing resource - unable to save record (no name)")
 	}
 
 	mutex := d.getOrCreateMutex(collection)
-
 	mutex.Lock()
 	defer mutex.Unlock()
 
 	dir := filepath.Join(d.dir, collection)
-
 	fnlPath := filepath.Join(dir, resource+".json")
-
 	tmpPath := fnlPath + ".tmp"
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	b, err := json.MarshalIndent(v, "", "\t")
-
+	file, err := os.Create(tmpPath)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	b = append(b, byte('\n'))
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "\t")
 
-	if err := os.WriteFile(tmpPath, b, 0644); err != nil {
+	if err := encoder.Encode(v); err != nil {
 		return err
 	}
+
 	return os.Rename(tmpPath, fnlPath)
 }
 
 func (d *Driver) Read(collection, resource string, v interface{}) error {
 	if collection == "" {
-		return fmt.Errorf("missing collection - no place to save record")
+		return fmt.Errorf("missing collection - no place to read record")
 	}
 	if resource == "" {
-		return fmt.Errorf("missing resource - unable to save record")
+		return fmt.Errorf("missing resource - unable to read record")
 	}
 
-	record := filepath.Join(d.dir, collection, resource)
+	record := filepath.Join(d.dir, collection, resource+".json")
 
-	if _, err := stat(record); err != nil {
-		return err
-	}
-
-	b, err := os.ReadFile(record + ".json")
-
+	file, err := os.Open(record)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	return json.Unmarshal(b, &v)
+	decoder := json.NewDecoder(file)
+	return decoder.Decode(v)
 }
 
-func (d *Driver) ReadAll(collection string) ([]string, error) {
-	if collection == "" {
-		return nil, fmt.Errorf("missing collection unable to read")
-	}
+func (d *Driver) StreamAll(collection string) (<-chan User, <-chan error) {
+	out := make(chan User)
+	errc := make(chan error, 1)
 
-	dir := filepath.Join(d.dir, collection)
+	go func() {
+		defer close(out)
+		defer close(errc)
 
-	if _, err := stat(dir); err != nil {
-		return nil, err
-	}
-
-	files, _ := os.ReadDir(dir)
-
-	var records []string
-
-	for _, file := range files {
-		b, err := os.ReadFile(filepath.Join(dir, file.Name()))
-
+		dir := filepath.Join(d.dir, collection)
+		files, err := os.ReadDir(dir)
 		if err != nil {
-			return nil, err
+			errc <- err
+			return
 		}
 
-		records = append(records, string(b))
-	}
+		for _, file := range files {
+			fpath := filepath.Join(dir, file.Name())
+			f, err := os.Open(fpath)
+			if err != nil {
+				errc <- err
+				return
+			}
 
-	return records, nil
+			var u User
+			dec := json.NewDecoder(f)
+			if err := dec.Decode(&u); err != nil {
+				f.Close()
+				errc <- err
+				return
+			}
+			f.Close()
+
+			out <- u
+		}
+	}()
+
+	return out, errc
 }
 
 // func (d *Driver) Delete() {
@@ -212,27 +218,30 @@ func main() {
 		})
 	}
 
-	records, err := db.ReadAll("users")
+	users, errs := db.StreamAll("users")
 
-	if err != nil {
-		log.Println("error for ReadAll ", err)
+	for user := range users {
+		fmt.Println("Streamed user:", user)
+	}
+	if err := <-errs; err != nil {
+		log.Println("Stream error:", err)
 	}
 
-	fmt.Println(records) // These are in json. Do unmarshalling to understand through structs
+	// fmt.Println(records) // These are in json. Do unmarshalling to understand through structs
 
-	allUsers := []User{}
+	// allUsers := []User{}
 
-	for _, f := range records {
-		employeeFound := User{}
+	// for _, f := range users {
+	// 	employeeFound := User{}
 
-		if err := json.Unmarshal([]byte(f), &employeeFound); err != nil {
-			log.Println("Error ", err)
-		}
+	// 	if err := json.Unmarshal([]byte(f), &employeeFound); err != nil {
+	// 		log.Println("Error ", err)
+	// 	}
 
-		allUsers = append(allUsers, employeeFound)
-	}
+	// 	allUsers = append(allUsers, employeeFound)
+	// }
 
-	fmt.Println("All users data is ", allUsers)
+	// fmt.Println("All users data is ", allUsers)
 
 	// if err := db.Delete("user", "john"); err != nil {
 	// 	fmt.Println("error for delete is ", err)
